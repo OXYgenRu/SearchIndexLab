@@ -240,40 +240,27 @@ void rbInsert(RBTree *tree, const char *key, int doc_id, const char *title) {
     return;
     }
 
-    /* Ищем: если ключ уже есть — просто добавляем в posting list */
+    /* За один проход ищем ключ и запоминаем место для вставки.
+       Если ключ уже есть - добавляем в posting list и выходим. */
+    RBNode *parent  = tree->nil;
     RBNode *current = tree->root;
+
     while (current != tree->nil) {
         int cmp = strcmp(key, current->key);
         if (cmp == 0) {
             appendPosting(current->postings, doc_id, title);
             return;
         }
-        if (cmp < 0) {
-            current = current->left;
-        } else {
-            current = current->right;
-        }
+        parent  = current;
+        current = (cmp < 0) ? current->left : current->right;
     }
 
-    /* Ключ не найден — создаём новый узел */
+    /* Ключ не найден — создаём новый узел и вставляем на найденное место */
     RBNode *z = createNode(tree, key);
     if (z == NULL) {
         return;
     }
     appendPosting(z->postings, doc_id, title);
-
-    /* Обычная вставка в BST */
-    RBNode *parent = tree->nil;
-    current = tree->root;
-
-    while (current != tree->nil) {
-        parent = current;
-        if (strcmp(z->key, current->key) < 0) {
-            current = current->left;
-        } else {
-            current = current->right;
-        }
-    }
 
     z->parent = parent;
 
