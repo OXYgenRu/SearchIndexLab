@@ -23,12 +23,6 @@ test_rb: posting.o rbtree/rbtree.o rbtree/tests.o
 test_btree: posting.o btree/btree.o btree/tests.o
 	$(CC) $(CFLAGS) -o test_btree posting.o btree/btree.o btree/tests.o $(COMMON_LIBS)
 
-test_search: posting.o rbtree/rbtree.o index/index.o index/search.o index/avlbtree_stubs.o index/tests_search.o $(COMMON_LIBS)
-	$(CC) $(CFLAGS) -o test_search posting.o rbtree/rbtree.o index/index.o index/search.o index/avlbtree_stubs.o index/tests_search.o $(COMMON_LIBS)
-
-benchmark: bench/bench.o posting.o rbtree/rbtree.o index/index.o index/search.o index/avlbtree_stubs.o $(COMMON_LIBS)
-	$(CC) $(CFLAGS) -o benchmark bench/bench.o posting.o rbtree/rbtree.o index/index.o index/search.o index/avlbtree_stubs.o $(COMMON_LIBS)
-
 u_tests: test_avl test_rb test_btree
 	./test_avl
 	./test_rb
@@ -55,7 +49,7 @@ test: app
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 clean:
-	rm -f app test_avl test_rb test_btree test_search benchmark
-	rm -f *.o avl/*.o rbtree/*.o btree/*.o index/*.o bench/*.o
+	rm -f app test_avl test_rb test_btree
+	rm -f *.o avl/*.o rbtree/*.o btree/*.o index/*.o
 	rm -f data/index_*.txt data/test/docs.jsonl data/test/idx_*.txt
 	rm -f lab3/list/*.o lab3/vector/*.o lab4/hash_table/*.o
