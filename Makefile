@@ -1,18 +1,27 @@
 CC     = gcc
 CFLAGS = -Wall -Wextra -std=c11 -O2 -g
 
+ifeq ($(OS),Windows_NT)
+    BENCH_LIBS = -lpsapi
+else
+    BENCH_LIBS =
+endif
+
 OBJ_SHARED = posting.o avl/avl.o rbtree/rbtree.o btree/btree.o \
-             index/index.o index/search.o
+             index/index.o index/index_builder.o index/search.o
 
 COMMON_LIBS = lab3/list/generic.o lab3/vector/generic.o lab4/hash_table/generic.o
 
 
-.PHONY: all app u_tests test clean
+.PHONY: all app benchmark u_tests test clean
 
 all: app u_tests
 
 app: $(OBJ_SHARED) $(COMMON_LIBS) main.o
 	$(CC) $(CFLAGS) -o app $(OBJ_SHARED) $(COMMON_LIBS) main.o
+
+benchmark: $(OBJ_SHARED) $(COMMON_LIBS) bench/bench.o bench/metrics.o
+	$(CC) $(CFLAGS) -o benchmark $(OBJ_SHARED) $(COMMON_LIBS) bench/bench.o bench/metrics.o $(BENCH_LIBS)
 
 test_avl: posting.o avl/avl.o avl/tests.o
 	$(CC) $(CFLAGS) -o test_avl posting.o avl/avl.o avl/tests.o $(COMMON_LIBS)
@@ -49,7 +58,8 @@ test: app
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 clean:
-	rm -f app test_avl test_rb test_btree
-	rm -f *.o avl/*.o rbtree/*.o btree/*.o index/*.o
+	rm -f app benchmark test_avl test_rb test_btree
+	rm -f *.o avl/*.o rbtree/*.o btree/*.o index/*.o bench/*.o
 	rm -f data/index_*.txt data/test/docs.jsonl data/test/idx_*.txt
+	rm -f bench/tmp/*.txt bench/results/*.csv
 	rm -f lab3/list/*.o lab3/vector/*.o lab4/hash_table/*.o
