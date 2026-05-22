@@ -17,7 +17,7 @@ COMMON_LIBS = lab3/list/generic.o lab3/vector/generic.o lab4/hash_table/generic.
 
 all: app u_tests
 
-app: $(OBJ_SHARED) main.o
+app: $(OBJ_SHARED) $(COMMON_LIBS) main.o
 	$(CC) $(CFLAGS) -o app $(OBJ_SHARED) $(COMMON_LIBS) main.o
 
 benchmark: $(OBJ_SHARED) $(COMMON_LIBS) bench/bench.o bench/metrics.o
