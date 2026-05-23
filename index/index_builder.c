@@ -10,6 +10,9 @@
 #define BUFFER_SIZE 1024
 #define STR_MIN_CAPACITY 128
 
+#define SUCCESS 0
+#define FAILURE (-1)
+
 #define MEMORY_ALLOCATION_ERROR "ERROR: allocated memory is NULL\n"
 #define FILE_OPEN_ERROR "ERROR: cannot open file\n"
 #define JSON_PARSE_ERROR "ERROR: cannot parse jsonl line\n"
@@ -574,5 +577,5 @@ int buildIndexFromJsonl(Index *idx, const char *path, int limit) {
 
     fclose(file);
 
-    return SUCCESS;
+    return processed_count;
 }

@@ -13,7 +13,7 @@ OBJ_SHARED = posting.o avl/avl.o rbtree/rbtree.o btree/btree.o \
 COMMON_LIBS = lab3/list/generic.o lab3/vector/generic.o lab4/hash_table/generic.o
 
 
-.PHONY: all app benchmark u_tests test clean
+.PHONY: all app benchmark benchmark_small u_tests test clean
 
 all: app u_tests
 
@@ -22,6 +22,9 @@ app: $(OBJ_SHARED) $(COMMON_LIBS) main.o
 
 benchmark: $(OBJ_SHARED) $(COMMON_LIBS) bench/bench.o bench/metrics.o
 	$(CC) $(CFLAGS) -o benchmark $(OBJ_SHARED) $(COMMON_LIBS) bench/bench.o bench/metrics.o $(BENCH_LIBS)
+
+benchmark_small: benchmark
+	./benchmark --run-all --data=data/test/docs.jsonl --queries=bench/queries
 
 test_avl: posting.o avl/avl.o avl/tests.o
 	$(CC) $(CFLAGS) -o test_avl posting.o avl/avl.o avl/tests.o $(COMMON_LIBS)
