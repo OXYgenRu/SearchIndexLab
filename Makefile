@@ -8,7 +8,7 @@ else
 endif
 
 OBJ_SHARED = posting.o avl/avl.o rbtree/rbtree.o btree/btree.o \
-             index/index.o index/index_builder.o index/search.o
+             index/index.o index/index_builder.o index/search.o index/levenshtein.o
 
 COMMON_LIBS = lab3/list/generic.o lab3/vector/generic.o lab4/hash_table/generic.o
 

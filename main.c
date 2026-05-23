@@ -29,7 +29,7 @@ static void usage(const char *prog) {
     fprintf(stderr,
             "Usage:\n"
             "  %s index  --type=<avl|rb|btree> [--data=PATH] [--index=PATH]\n"
-            "  %s search --type=<avl|rb|btree> [--index=PATH] [--json] \"query\"\n",
+            "  %s search --type=<avl|rb|btree> [--index=PATH] [--json] [--fuzzy] [--max-dist=N] \"query\"\n",
             prog, prog);
 }
 
@@ -71,6 +71,24 @@ static const char *typeName(TreeType type) {
     }
 }
 
+static int parseNonNegativeInt(const char *value, int *out) {
+    char *end = NULL;
+    long parsed;
+
+    if (value == NULL || out == NULL) {
+        return FAILURE;
+    }
+
+    errno = 0;
+    parsed = strtol(value, &end, 10);
+    if (errno != 0 || end == value || *end != '\0' || parsed < 0 || parsed > INT_MAX) {
+        return FAILURE;
+    }
+
+    *out = (int) parsed;
+    return SUCCESS;
+}
+
 static void runIndex(TreeType type, const char *data_path, const char *idx_path) {
     Index *idx;
 
@@ -97,7 +115,8 @@ static void runIndex(TreeType type, const char *data_path, const char *idx_path)
 }
 
 static void runSearch(TreeType type, const char *idx_path,
-                      const char *query, int json_out) {
+                      const char *query, int json_out,
+                      int fuzzy, int max_distance) {
     if (idx_path == NULL) {
         return;
     }
@@ -112,7 +131,9 @@ static void runSearch(TreeType type, const char *idx_path,
         exit(FAILURE);
     }
 
-    SearchResults *search_results = search(idx, query);
+    SearchResults *search_results = fuzzy
+                                    ? fuzzySearch(idx, query, max_distance)
+                                    : search(idx, query);
     if (search_results == NULL) {
         freeIndex(idx);
         exit(FAILURE);
@@ -134,6 +155,8 @@ int main(int argc, char *argv[]) {
     const char *data_path = "data/processed/docs.jsonl";
     char idx_path[INDEX_PATH_SIZE] = {0};
     int json_out = 0;
+    int fuzzy = 0;
+    int max_distance = 2;
     const char *query = NULL;
     int argument_index;
 
@@ -154,6 +177,14 @@ int main(int argc, char *argv[]) {
             idx_path[sizeof(idx_path) - 1] = '\0';
         } else if (strcmp(argv[argument_index], "--json") == 0) {
             json_out = 1;
+        } else if (strcmp(argv[argument_index], "--fuzzy") == 0) {
+            fuzzy = 1;
+        } else if (strncmp(argv[argument_index], "--max-dist=", 11) == 0) {
+            if (parseNonNegativeInt(argv[argument_index] + 11, &max_distance) == FAILURE) {
+                printf(ARGUMENT_ERROR);
+                usage(argv[0]);
+                return FAILURE;
+            }
         } else if (argv[argument_index][0] != '-') {
             query = argv[argument_index];
         } else {
@@ -175,7 +206,7 @@ int main(int argc, char *argv[]) {
             return FAILURE;
         }
 
-        runSearch(type, idx_path, query, json_out);
+        runSearch(type, idx_path, query, json_out, fuzzy, max_distance);
     } else {
         fprintf(stderr, "Unknown mode: %s\n", mode);
         usage(argv[0]);

@@ -5,6 +5,7 @@
 #include <time.h>
 
 #include "search.h"
+#include "levenshtein.h"
 #include "../lab4/hash_table/generic.h"
 
 #define SUCCESS 0
@@ -18,6 +19,28 @@ typedef struct {
     int    count;
     int    capacity;
 } TokenList;
+
+typedef struct {
+    const char *term;
+    int         max_distance;
+    Vector     *candidates;
+    int         failed;
+} FuzzyCollectContext;
+
+typedef struct {
+    int  doc_id;
+    char title[SEARCH_TITLE_LENGTH];
+    int  distance;
+} FuzzyTermMatch;
+
+typedef struct {
+    int    doc_id;
+    char   title[SEARCH_TITLE_LENGTH];
+    int    matched_terms;
+    int    total_distance;
+    double avg_distance;
+    double score;
+} FuzzyDocScore;
 
 static int isTokenChar(int c) {
     if (c == '_') {
@@ -133,8 +156,25 @@ static void copyTitle(char *dst, const char *src) {
         dst[0] = '\0';
         return;
     }
-    strncpy(dst, src, SEARCH_TITLE_LENGTH - 1);
-    dst[SEARCH_TITLE_LENGTH - 1] = '\0';
+    size_t len = strlen(src);
+    if (len >= SEARCH_TITLE_LENGTH) {
+        len = SEARCH_TITLE_LENGTH - 1;
+    }
+    memcpy(dst, src, len);
+    dst[len] = '\0';
+}
+
+static void copyFuzzyTerm(char *dst, const char *src) {
+    if (src == NULL) {
+        dst[0] = '\0';
+        return;
+    }
+    size_t len = strlen(src);
+    if (len >= FUZZY_TERM_LENGTH) {
+        len = FUZZY_TERM_LENGTH - 1;
+    }
+    memcpy(dst, src, len);
+    dst[len] = '\0';
 }
 
 Vector *intersectPostings(Vector **lists, int n) {
@@ -269,6 +309,307 @@ static SearchResults *createEmptyResults(double time_ms) {
         free(sr);
         return NULL;
     }
+    return sr;
+}
+
+static int lengthDifferenceAboveLimit(const char *a, const char *b, int limit) {
+    size_t a_len = strlen(a);
+    size_t b_len = strlen(b);
+    size_t diff = a_len > b_len ? a_len - b_len : b_len - a_len;
+    return diff > (size_t) limit;
+}
+
+static void collectFuzzyCandidate(const char *key, Vector *postings, void *ctx_data) {
+    FuzzyCollectContext *ctx = (FuzzyCollectContext *) ctx_data;
+    if (ctx == NULL || key == NULL || postings == NULL || ctx->failed) {
+        return;
+    }
+
+    if (lengthDifferenceAboveLimit(ctx->term, key, ctx->max_distance)) {
+        return;
+    }
+
+    int distance = levenshteinDistance(ctx->term, key);
+    if (distance < 0 || distance > ctx->max_distance) {
+        return;
+    }
+
+    FuzzyCandidate candidate;
+    copyFuzzyTerm(candidate.term, key);
+    candidate.distance = distance;
+    candidate.postings = postings;
+
+    if (appendVectorItem(ctx->candidates, &candidate) == FAILURE) {
+        printf(MEMORY_ALLOCATION_ERROR);
+        ctx->failed = 1;
+    }
+}
+
+Vector *fuzzyFindCandidates(Index *idx, const char *term, int max_distance) {
+    Vector *candidates = createVector(sizeof(FuzzyCandidate));
+    if (candidates == NULL) {
+        printf(MEMORY_ALLOCATION_ERROR);
+        return NULL;
+    }
+
+    if (idx == NULL || term == NULL || max_distance < 0) {
+        return candidates;
+    }
+
+    FuzzyCollectContext ctx;
+    ctx.term = term;
+    ctx.max_distance = max_distance;
+    ctx.candidates = candidates;
+    ctx.failed = 0;
+
+    traverseIndex(idx, collectFuzzyCandidate, &ctx);
+    if (ctx.failed) {
+        vectorFree(candidates);
+        return NULL;
+    }
+    return candidates;
+}
+
+static FuzzyTermMatch *findTermMatch(Vector *matches, int doc_id) {
+    if (matches == NULL) {
+        return NULL;
+    }
+    for (size_t i = 0; i < matches->size; i++) {
+        FuzzyTermMatch *match = getVectorItem(matches, i);
+        if (match != NULL && match->doc_id == doc_id) {
+            return match;
+        }
+    }
+    return NULL;
+}
+
+static FuzzyDocScore *findDocScore(Vector *scores, int doc_id) {
+    if (scores == NULL) {
+        return NULL;
+    }
+    for (size_t i = 0; i < scores->size; i++) {
+        FuzzyDocScore *score = getVectorItem(scores, i);
+        if (score != NULL && score->doc_id == doc_id) {
+            return score;
+        }
+    }
+    return NULL;
+}
+
+static int addTermMatches(Vector *term_matches, const FuzzyCandidate *candidate) {
+    if (term_matches == NULL || candidate == NULL || candidate->postings == NULL) {
+        return SUCCESS;
+    }
+
+    for (size_t i = 0; i < candidate->postings->size; i++) {
+        PostingEntry *entry = getVectorItem(candidate->postings, i);
+        if (entry == NULL) {
+            continue;
+        }
+
+        FuzzyTermMatch *existing = findTermMatch(term_matches, entry->doc_id);
+        if (existing != NULL) {
+            if (candidate->distance < existing->distance) {
+                existing->distance = candidate->distance;
+                copyTitle(existing->title, entry->title);
+            }
+            continue;
+        }
+
+        FuzzyTermMatch match;
+        match.doc_id = entry->doc_id;
+        copyTitle(match.title, entry->title);
+        match.distance = candidate->distance;
+        if (appendVectorItem(term_matches, &match) == FAILURE) {
+            printf(MEMORY_ALLOCATION_ERROR);
+            return FAILURE;
+        }
+    }
+
+    return SUCCESS;
+}
+
+static int mergeTermMatches(Vector *doc_scores, Vector *term_matches) {
+    if (doc_scores == NULL || term_matches == NULL) {
+        return SUCCESS;
+    }
+
+    for (size_t i = 0; i < term_matches->size; i++) {
+        FuzzyTermMatch *match = getVectorItem(term_matches, i);
+        if (match == NULL) {
+            continue;
+        }
+
+        FuzzyDocScore *existing = findDocScore(doc_scores, match->doc_id);
+        if (existing != NULL) {
+            existing->matched_terms++;
+            existing->total_distance += match->distance;
+            continue;
+        }
+
+        FuzzyDocScore score;
+        score.doc_id = match->doc_id;
+        copyTitle(score.title, match->title);
+        score.matched_terms = 1;
+        score.total_distance = match->distance;
+        score.avg_distance = 0.0;
+        score.score = 0.0;
+        if (appendVectorItem(doc_scores, &score) == FAILURE) {
+            printf(MEMORY_ALLOCATION_ERROR);
+            return FAILURE;
+        }
+    }
+
+    return SUCCESS;
+}
+
+static int compareFuzzyDocScores(const void *a, const void *b) {
+    const FuzzyDocScore *ra = (const FuzzyDocScore *) a;
+    const FuzzyDocScore *rb = (const FuzzyDocScore *) b;
+
+    if (ra->score < rb->score) {
+        return 1;
+    }
+    if (ra->score > rb->score) {
+        return -1;
+    }
+    if (ra->avg_distance > rb->avg_distance) {
+        return 1;
+    }
+    if (ra->avg_distance < rb->avg_distance) {
+        return -1;
+    }
+    if (ra->doc_id < rb->doc_id) {
+        return -1;
+    }
+    if (ra->doc_id > rb->doc_id) {
+        return 1;
+    }
+    return 0;
+}
+
+static void computeFuzzyScores(Vector *doc_scores) {
+    if (doc_scores == NULL) {
+        return;
+    }
+    for (size_t i = 0; i < doc_scores->size; i++) {
+        FuzzyDocScore *score = getVectorItem(doc_scores, i);
+        if (score == NULL || score->matched_terms <= 0) {
+            continue;
+        }
+        score->avg_distance = (double) score->total_distance / (double) score->matched_terms;
+        score->score = (double) score->matched_terms * 10.0 - score->avg_distance;
+    }
+}
+
+static int roundedFuzzyScore(double value) {
+    if (value >= 0.0) {
+        return (int) (value + 0.5);
+    }
+    return (int) (value - 0.5);
+}
+
+SearchResults *fuzzySearch(Index *idx, const char *query, int max_distance) {
+    double t_start = currentTimeMs();
+
+    if (idx == NULL || query == NULL || max_distance < 0) {
+        return createEmptyResults(currentTimeMs() - t_start);
+    }
+
+    TokenList tokens;
+    if (tokenizeQuery(query, &tokens) == FAILURE) {
+        return createEmptyResults(currentTimeMs() - t_start);
+    }
+    if (tokens.count == 0) {
+        tokenListFree(&tokens);
+        return createEmptyResults(currentTimeMs() - t_start);
+    }
+
+    Vector *doc_scores = createVector(sizeof(FuzzyDocScore));
+    if (doc_scores == NULL) {
+        printf(MEMORY_ALLOCATION_ERROR);
+        tokenListFree(&tokens);
+        return createEmptyResults(currentTimeMs() - t_start);
+    }
+
+    int failed = 0;
+    for (int i = 0; i < tokens.count && !failed; i++) {
+        Vector *candidates = fuzzyFindCandidates(idx, tokens.items[i], max_distance);
+        if (candidates == NULL) {
+            failed = 1;
+            break;
+        }
+
+        Vector *term_matches = createVector(sizeof(FuzzyTermMatch));
+        if (term_matches == NULL) {
+            printf(MEMORY_ALLOCATION_ERROR);
+            vectorFree(candidates);
+            failed = 1;
+            break;
+        }
+
+        for (size_t j = 0; j < candidates->size && !failed; j++) {
+            FuzzyCandidate *candidate = getVectorItem(candidates, j);
+            if (addTermMatches(term_matches, candidate) == FAILURE) {
+                failed = 1;
+            }
+        }
+
+        if (!failed && mergeTermMatches(doc_scores, term_matches) == FAILURE) {
+            failed = 1;
+        }
+
+        vectorFree(term_matches);
+        vectorFree(candidates);
+    }
+
+    tokenListFree(&tokens);
+
+    if (failed) {
+        vectorFree(doc_scores);
+        return createEmptyResults(currentTimeMs() - t_start);
+    }
+
+    computeFuzzyScores(doc_scores);
+    if (doc_scores->size > 1) {
+        qsort(doc_scores->data, doc_scores->size, sizeof(FuzzyDocScore), compareFuzzyDocScores);
+    }
+
+    SearchResults *sr = malloc(sizeof(SearchResults));
+    if (sr == NULL) {
+        printf(MEMORY_ALLOCATION_ERROR);
+        vectorFree(doc_scores);
+        return NULL;
+    }
+
+    sr->total = (int) doc_scores->size;
+    sr->results = createVector(sizeof(SearchResult));
+    if (sr->results == NULL) {
+        printf(MEMORY_ALLOCATION_ERROR);
+        vectorFree(doc_scores);
+        free(sr);
+        return NULL;
+    }
+
+    size_t limit = doc_scores->size < (size_t) SEARCH_TOP_LIMIT ? doc_scores->size : (size_t) SEARCH_TOP_LIMIT;
+    for (size_t i = 0; i < limit; i++) {
+        FuzzyDocScore *item = getVectorItem(doc_scores, i);
+        if (item == NULL) {
+            continue;
+        }
+
+        SearchResult result;
+        result.doc_id = item->doc_id;
+        copyTitle(result.title, item->title);
+        result.score = roundedFuzzyScore(item->score);
+        if (appendVectorItem(sr->results, &result) == FAILURE) {
+            printf(MEMORY_ALLOCATION_ERROR);
+            break;
+        }
+    }
+
+    vectorFree(doc_scores);
+    sr->time_ms = currentTimeMs() - t_start;
     return sr;
 }
 
