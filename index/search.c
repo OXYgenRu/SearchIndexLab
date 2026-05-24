@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 199309L
+
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
