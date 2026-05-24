@@ -58,7 +58,7 @@ if search_clicked:
                 [str(APP_BINARY), "search", f"--type={tree_type}", "--json", query],
                 capture_output=True,
                 text=True,
-                timeout=30,
+                timeout=120,
             )
             wall_ms = (time.monotonic() - t0) * 1000
 

@@ -1,0 +1,12 @@
+.git
+.idea
+data
+*.o
+**/*.o
+*.exe
+**/*.exe
+app
+benchmark
+test_*
+bench/tmp
+bench/queries

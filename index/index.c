@@ -16,24 +16,6 @@
 #define STR_MIN_CAPACITY 128
 
 
-static int countLinesInFile(FILE *f) {
-    int c;
-    int lines = 0;
-    int last = '\n';
-
-    while ((c = fgetc(f)) != EOF) {
-        if (c == '\n') {
-            lines++;
-        }
-        last = c;
-    }
-
-    if (last != '\n') {
-        lines++;
-    }
-    return lines;
-}
-
 static char *getLine(FILE *f) {
     if (!f) {
         return NULL;
@@ -87,65 +69,6 @@ static char *getLine(FILE *f) {
         return NULL;
     }
     return line;
-}
-
-// Вспомогательная функция: чтение файла в массив строк
-static char **readFileLines(const char *filename, int *count) {
-    if (!filename || !count) {
-        return NULL;
-    }
-    *count = 0;
-    FILE *f = fopen(filename, "r");
-    if (!f) {
-        return NULL;
-    }
-    int lines_count = countLinesInFile(f);
-
-    if (ferror(f)) {
-        fclose(f);
-        return NULL;
-    }
-
-    if (lines_count == 0) {
-        fclose(f);
-        return NULL;
-    }
-
-    if (fseek(f, 0, SEEK_SET) != 0) {
-        fclose(f);
-        return NULL;
-    }
-    char **lines = malloc(lines_count * sizeof(char *));
-    if (!lines) {
-        fclose(f);
-        return NULL;
-    }
-    for (int i = 0; i < lines_count; i++) {
-        char *str = getLine(f);
-        if (!str) {
-            for (int j = 0; j < i; j++) {
-                free(lines[j]);
-            }
-            free(lines);
-            fclose(f);
-            return NULL;
-        }
-        lines[i] = str;
-    }
-
-    fclose(f);
-    *count = lines_count;
-    return lines;
-}
-
-static void freeFileLines(char **lines, int count) {
-    if (!lines) {
-        return;
-    }
-    for (int i = 0; i < count; i++) {
-        free(lines[i]);
-    }
-    free(lines);
 }
 
 typedef struct {
@@ -391,47 +314,57 @@ static int parseIndexLine(char *line, char **term, int *doc_id, char **title) {
 
 Index *loadIndex(const char *path, TreeType type) {
     Index *idx;
-    char **lines;
-    int lines_count;
-    int line_index;
+    FILE *file;
 
     if (path == NULL) {
         return NULL;
     }
 
+    file = fopen(path, "r");
+    if (file == NULL) {
+        printf(FILE_OPEN_ERROR);
+        return NULL;
+    }
+
     idx = createIndex(type);
     if (idx == NULL) {
+        fclose(file);
         return NULL;
     }
 
-    lines = readFileLines(path, &lines_count);
-    if (lines == NULL) {
-        printf(FILE_OPEN_ERROR);
-        freeIndex(idx);
-        return NULL;
-    }
-
-    for (line_index = 0; line_index < lines_count; line_index++) {
+    while (1) {
+        char *line;
         char *term;
         char *title;
         int doc_id;
 
-        if (lines[line_index] == NULL) {
+        line = getLine(file);
+        if (line == NULL) {
+            break;
+        }
+
+        if (line[0] == '\0') {
+            free(line);
             continue;
         }
 
-        if (lines[line_index][0] == '\0') {
-            continue;
-        }
-
-        if (parseIndexLine(lines[line_index], &term, &doc_id, &title) == FAILURE) {
+        if (parseIndexLine(line, &term, &doc_id, &title) == FAILURE) {
+            free(line);
             continue;
         }
 
         insertTerm(idx, term, doc_id, title);
+        free(line);
     }
 
-    freeFileLines(lines, lines_count);
+    if (ferror(file)) {
+        printf(FILE_OPEN_ERROR);
+        fclose(file);
+        freeIndex(idx);
+        return NULL;
+    }
+
+    fclose(file);
 
     return idx;
 }
